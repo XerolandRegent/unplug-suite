@@ -2,6 +2,18 @@
 
 Thank you for your interest in contributing to Unplug Suite! This document provides guidelines and instructions for contributing to this project.
 
+## Licensing Notice
+
+This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License** (CC BY-NC 4.0). By contributing to this project, you agree that your contributions will be licensed under this license.
+
+Key license requirements:
+- Commercial use of this software is prohibited
+- Attribution to Unplug Suite must be maintained in all copies and derivatives
+- Modifications are allowed but must be indicated
+- The Unplug Suite creators do not endorse derivative works
+
+For the full license text, see the [LICENSE](LICENSE) file or visit: http://creativecommons.org/licenses/by-nc/4.0/legalcode
+
 ## Code of Conduct
 
 By participating in this project, you agree to abide by our Code of Conduct. Please read it before contributing.
@@ -40,6 +52,7 @@ This section guides you through submitting an enhancement suggestion, including 
 - Include thoughtfully-worded, well-structured tests
 - Document new code
 - End all files with a newline
+- **Ensure your contributions comply with the CC BY-NC 4.0 license**
 
 ## Styleguides
 
@@ -87,11 +100,10 @@ All JavaScript code is linted with ESLint and should adhere to the [Airbnb JavaS
 
 When contributing to Unplug Suite, please respect the following project structure:
 
-```
 unplug-suite/
 unplug/
 ├── README.md                 # Main project README
-├── LICENSE                   # MIT License
+├── LICENSE                   # CC BY-NC 4.0 License
 ├── CONTRIBUTING.md           # This file
 ├── .gitignore                # Git ignore file
 ├── assets/                   # Shared assets
@@ -100,10 +112,9 @@ unplug/
 │   ├── lib/                  # Common code libraries
 │   └── styles/               # Shared CSS styles
 └── tools/                    # Individual tools
-    └── [tool-name]/          # Each tool in its own directory
-        ├── README.md         # Tool-specific documentation
-        └── ...               # Tool files
-```
+└── [tool-name]/          # Each tool in its own directory
+├── README.md         # Tool-specific documentation
+└── ...               # Tool files
 
 ## Tool Development Guidelines
 
@@ -124,6 +135,9 @@ When developing new tools for Unplug Suite, please follow these guidelines:
    - No telemetry or tracking
    - No data sent to external servers without explicit consent
    - Clear documentation of what happens to user data
+6. **Adhere to non-commercial requirements**:
+   - Do not add features intended for commercial use
+   - Ensure all code respects the CC BY-NC 4.0 license terms
 
 ## Adding a New Tool Checklist
 
@@ -134,6 +148,16 @@ When developing new tools for Unplug Suite, please follow these guidelines:
 - [ ] Update the main README.md to include your tool
 - [ ] Update the launcher.sh script to include your tool
 - [ ] Submit a pull request with a clear description of your tool
+- [ ] Confirm compliance with CC BY-NC 4.0 license
+
+## Non-Commercial Restriction
+
+Please note that this project prohibits commercial use as per the CC BY-NC 4.0 license. Contributions that enable or facilitate commercial use will not be accepted. Examples of prohibited commercial use include:
+
+- Selling the software or derivative works
+- Including the software in a commercial product
+- Using the software in a commercial service
+- Monetizing the software through advertising or subscriptions
 
 ## Questions?
 
