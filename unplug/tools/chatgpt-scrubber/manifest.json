@@ -1,0 +1,32 @@
+{
+  "manifest_version": 2,
+  "name": "ChatGPT Scrubber",
+  "version": "1.0.0",
+  "description": "Bulk delete archived ChatGPT conversations. Part of the Unplug Suite for digital privacy.",
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://chat.openai.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "browser_action": {
+    "default_icon": "icons/icon-48.png",
+    "default_title": "ChatGPT Scrubber",
+    "default_popup": "popup/popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "chatgpt-scrubber@unplug-suite.org",
+      "strict_min_version": "57.0"
+    }
+  }
+}
