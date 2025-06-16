@@ -4,7 +4,7 @@
  * Description: Content script for ChatGPT Scrubber - Unplug Suite
  * Date Created: June 16, 2025
  * Date Last Updated: June 16, 2025
- * Version History: 1.0 - Initial version
+ * Version History: 1.0.2 - Improved deletion functionality and UI
  */
 
 (function() {
@@ -32,6 +32,7 @@
   let totalArchives = 0;
   let abortController = null;
   let logEntries = [];
+  let archivesPanelOpen = false;
   
   // Add log entry and notify popup
   function addLogEntry(message) {
@@ -60,6 +61,16 @@
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     log(`Received message: ${JSON.stringify(message)}`);
     
+    // Special handling for connection check
+    if (message.action === 'checkConnection') {
+      sendResponse({
+        connected: true,
+        url: window.location.href,
+        domain: window.location.hostname
+      });
+      return true;
+    }
+    
     switch (message.action) {
       case 'checkArchivesStatus':
         const status = checkArchivesStatus();
@@ -67,8 +78,15 @@
         break;
         
       case 'openArchivesPanel':
+        // If the panel is already open, don't try to open it again
+        if (archivesPanelOpen) {
+          sendResponse({ success: true, alreadyOpen: true });
+          return true;
+        }
+        
         openArchivesPanel()
           .then(() => {
+            archivesPanelOpen = true;
             addLogEntry('Archives panel opened');
             sendResponse({ success: true });
           })
@@ -81,7 +99,7 @@
       case 'deleteAllArchives':
         if (isDeleting) {
           sendResponse({ success: false, error: 'Deletion already in progress' });
-          return;
+          return true;
         }
         
         const options = message.options || {};
@@ -94,17 +112,6 @@
             addLogEntry(`Error deleting archives: ${error.message}`);
             sendResponse({ success: false, error: error.message });
           });
-        break;
-        
-      case 'abortDeletion':
-        if (abortController) {
-          abortController.abort();
-          isDeleting = false;
-          addLogEntry('Deletion process aborted by user');
-          sendResponse({ success: true });
-        } else {
-          sendResponse({ success: false, error: 'No deletion in progress' });
-        }
         break;
         
       case 'getLogEntries':
@@ -123,6 +130,7 @@
     const archivesPanel = findArchivesPanel();
     
     if (archivesPanel) {
+      archivesPanelOpen = true;
       const rows = archivesPanel.querySelectorAll('tbody > tr');
       return {
         archivesOpen: true,
@@ -130,6 +138,7 @@
       };
     }
     
+    archivesPanelOpen = false;
     return {
       archivesOpen: false,
       count: 0
@@ -140,49 +149,199 @@
    * Open the archives panel
    */
   async function openArchivesPanel() {
+    // Save current URL to detect if navigation happens
+    const startingUrl = window.location.href;
+    
     return new Promise((resolve, reject) => {
-      // Try to find the settings button
-      const settingsButton = document.querySelector('a[href="#settings"]');
-      
-      if (!settingsButton) {
-        reject(new Error('Settings button not found'));
+      // First check if already in settings
+      if (window.location.href.includes("#settings")) {
+        log("Already in settings");
+        lookForArchivesButton();
         return;
       }
       
-      // Click settings
-      settingsButton.click();
-      log('Settings clicked');
-      
-      // Wait for settings panel to open
-      setTimeout(() => {
-        // Look for archived chats button
-        const archivedChatsButton = Array.from(document.querySelectorAll('button')).find(
-          button => button.textContent.includes('Archived chats')
-        );
+      // If we're on a specific conversation page, go to home first
+      if (window.location.href.includes("/c/")) {
+        // Click on the ChatGPT logo or home button to return to the main interface
+        const homeButtons = [
+          document.querySelector('a[href="/"]'),
+          document.querySelector('[aria-label="Home"]'),
+          document.querySelector('.logo')
+        ];
         
-        if (!archivedChatsButton) {
+        const homeButton = homeButtons.find(btn => btn !== null);
+        
+        if (homeButton) {
+          log('Navigating to home first');
+          homeButton.click();
+          
+          // Wait for navigation to complete
+          setTimeout(() => {
+            clickSettingsButton();
+          }, 1500);
+        } else {
+          clickSettingsButton();
+        }
+      } else {
+        clickSettingsButton();
+      }
+      
+      function clickSettingsButton() {
+        // Try to find settings navigation
+        const settingsBtns = [
+          document.querySelector('[aria-label="Settings"]'),
+          document.querySelector('nav a[href="#settings"]'),
+          document.querySelector('button[data-testid="SettingsButton"]'),
+          document.querySelector('button[aria-label="Settings"]')
+        ];
+        
+        let foundButton = settingsBtns.find(btn => btn !== null);
+        
+        // If no button found, try by text content
+        if (!foundButton) {
+          log("No settings button found by selector, trying by text");
+          const allButtons = Array.from(document.querySelectorAll('button, a'));
+          foundButton = allButtons.find(el => 
+            el.textContent && el.textContent.toLowerCase().trim() === 'settings'
+          );
+        }
+        
+        if (!foundButton) {
+          // Try one more method - looking for SVG icons that might be settings
+          const svgParents = Array.from(document.querySelectorAll('button svg, a svg'));
+          const potentialSettingsButtons = svgParents.map(svg => svg.closest('button') || svg.closest('a')).filter(btn => btn !== null);
+          
+          // Check for known common settings icon paths
+          for (const btn of potentialSettingsButtons) {
+            const pathData = btn.querySelector('path')?.getAttribute('d');
+            if (pathData && (
+              pathData.includes("M12 6V4m0 2a2") || // Common settings gear icon path
+              pathData.includes("cog") ||
+              btn.getAttribute('aria-label')?.toLowerCase().includes('setting')
+            )) {
+              foundButton = btn;
+              break;
+            }
+          }
+        }
+        
+        if (!foundButton) {
+          reject(new Error('Settings button not found'));
+          return;
+        }
+        
+        log('Settings button found, clicking...');
+        foundButton.click();
+        
+        // Wait for settings panel to open
+        setTimeout(lookForArchivesButton, 1500);
+      }
+      
+      function lookForArchivesButton() {
+        // Check if we navigated away
+        if (window.location.href !== startingUrl && !window.location.href.includes("#settings")) {
+          log(`Navigation detected: ${window.location.href}`);
+          reject(new Error('Page navigation occurred'));
+          return;
+        }
+        
+        log('Looking for archives button...');
+        
+        // Try multiple approaches to find the archives button
+        const archiveButtons = [
+          document.querySelector('button:has-text("Archived")'),
+          document.querySelector('[data-testid="archived-chats-button"]')
+        ];
+        
+        let archiveButton = archiveButtons.find(btn => btn !== null);
+        
+        // Text content search approach
+        if (!archiveButton) {
+          const allButtons = Array.from(document.querySelectorAll('button'));
+          archiveButton = allButtons.find(button => {
+            const text = button.textContent.toLowerCase();
+            return text.includes('archive') || text.includes('archived chat');
+          });
+        }
+        
+        if (!archiveButton) {
           reject(new Error('Archived chats button not found'));
           return;
         }
         
-        // Click archived chats
-        archivedChatsButton.click();
-        log('Archived chats clicked');
+        log('Archives button found, clicking...');
+        archiveButton.click();
         
         // Check if archives panel opened
         setTimeout(() => {
           const archivesPanel = findArchivesPanel();
           
           if (archivesPanel) {
+            archivesPanelOpen = true;
+            log('Archives panel found');
+            
             // Add our custom UI to the archives panel if it doesn't exist
-            addCustomUIToPanel(archivesPanel);
+            try {
+              addCustomUIToPanel(archivesPanel);
+            } catch (e) {
+              log(`Error adding UI: ${e.message}`);
+            }
+            
             resolve();
           } else {
+            archivesPanelOpen = false;
             reject(new Error('Archives panel did not open'));
           }
-        }, 1000);
-      }, 1000);
+        }, 1500); // Increased timeout for panel to appear
+      }
     });
+  }
+  
+  /**
+   * Find the archives panel element
+   */
+  function findArchivesPanel() {
+    // Try various strategies to locate the archives panel
+    
+    // 1. Look for modal with data-testid
+    const archivesModal = document.querySelector('[data-testid="modal-archived-conversations"]');
+    if (archivesModal) {
+      const table = archivesModal.querySelector('table');
+      if (table) {
+        return table;
+      }
+    }
+    
+    // 2. Look for dialog with archived chats heading
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    for (const dialog of dialogs) {
+      const headings = dialog.querySelectorAll('h1, h2, h3, h4');
+      for (const heading of headings) {
+        if (heading.textContent.toLowerCase().includes('archive')) {
+          const table = dialog.querySelector('table');
+          if (table) {
+            return table;
+          }
+          // If no table but we found the heading, return a container element
+          return dialog.querySelector('.overflow-y-auto') || dialog;
+        }
+      }
+    }
+    
+    // 3. Direct search for table in modals or dialogs
+    const modals = document.querySelectorAll('.modal, [role="dialog"]');
+    for (const modal of modals) {
+      if (modal.textContent.toLowerCase().includes('archive')) {
+        const table = modal.querySelector('table');
+        if (table) {
+          return table;
+        }
+        // Return container if no table
+        return modal.querySelector('.overflow-y-auto') || modal;
+      }
+    }
+    
+    return null;
   }
   
   /**
@@ -194,53 +353,71 @@
       return;
     }
     
-    // Find the header element
-    const header = panel.closest('[role="dialog"]').querySelector('h2');
+    // Find a good insertion point - the title area
+    const dialog = panel.closest('[role="dialog"]');
+    if (!dialog) return;
     
-    if (!header) {
-      return;
-    }
+    const titleArea = dialog.querySelector('h2') || dialog.querySelector('.modal-header');
+    if (!titleArea) return;
     
-    // Create the container
+    // Create a container that fits the ChatGPT interface
     const container = document.createElement('div');
     container.className = 'unplug-scrubber-ui';
-    container.style.marginTop = '12px';
+    container.style.marginTop = '10px';
+    container.style.marginBottom = '15px';
     container.style.display = 'flex';
     container.style.alignItems = 'center';
     container.style.justifyContent = 'space-between';
+    container.style.padding = '0 8px';
     
-    // Create the badge
+    // Create a more professional badge
     const badge = document.createElement('div');
     badge.className = 'unplug-badge';
-    badge.textContent = 'UNPLUG SUITE';
-    badge.style.backgroundColor = '#6366f1';
-    badge.style.color = 'white';
-    badge.style.fontSize = '10px';
-    badge.style.fontWeight = 'bold';
-    badge.style.padding = '2px 6px';
-    badge.style.borderRadius = '4px';
-    badge.style.display = 'inline-block';
+    badge.textContent = 'ChatGPT Scrubber';
+    badge.style.fontSize = '12px';
+    badge.style.fontWeight = '500';
+    badge.style.color = '#8e8ea0'; // ChatGPT muted text color
+    badge.style.display = 'flex';
+    badge.style.alignItems = 'center';
+    badge.style.gap = '6px';
     
-    // Add tooltip to badge
-    badge.title = 'ChatGPT Scrubber by Unplug Suite';
+    // Add a small icon
+    const icon = document.createElement('span');
+    icon.innerHTML = '🧹'; // Broom emoji
+    icon.style.fontSize = '14px';
     
-    // Insert the badge after the header
-    header.parentNode.insertBefore(container, header.nextSibling);
+    badge.prepend(icon);
+    
+    // Position the badge to avoid the ChatGPT logo
+    badge.style.position = 'relative';
+    badge.style.left = '24px'; // Move right to avoid overlap
+    
+    // Insert the badge below the title
+    titleArea.parentNode.insertBefore(container, titleArea.nextSibling);
     container.appendChild(badge);
     
-    // Add custom delete button if we're not in the middle of deletion
+    // Add delete all button
     if (!isDeleting) {
       const deleteAllButton = document.createElement('button');
       deleteAllButton.className = 'unplug-delete-all-btn';
       deleteAllButton.textContent = 'Delete All';
-      deleteAllButton.style.backgroundColor = '#ef4444';
+      deleteAllButton.style.backgroundColor = '#8e8ea0'; // Match ChatGPT's style
       deleteAllButton.style.color = 'white';
       deleteAllButton.style.border = 'none';
       deleteAllButton.style.borderRadius = '4px';
-      deleteAllButton.style.padding = '4px 8px';
+      deleteAllButton.style.padding = '4px 10px';
       deleteAllButton.style.fontSize = '12px';
-      deleteAllButton.style.fontWeight = 'bold';
+      deleteAllButton.style.fontWeight = '500';
       deleteAllButton.style.cursor = 'pointer';
+      deleteAllButton.style.transition = 'background-color 0.2s';
+      
+      // Hover effect
+      deleteAllButton.onmouseover = () => {
+        deleteAllButton.style.backgroundColor = '#ef4444';
+      };
+      deleteAllButton.onmouseout = () => {
+        deleteAllButton.style.backgroundColor = '#8e8ea0';
+      };
       
       deleteAllButton.addEventListener('click', () => {
         browser.storage.local.get(['confirmBeforeDelete']).then((result) => {
@@ -257,31 +434,7 @@
   }
   
   /**
-   * Find the archives panel element
-   */
-  function findArchivesPanel() {
-    // Find the archives panel by looking for the heading
-    const archivedChatsHeading = Array.from(document.querySelectorAll('h2')).find(
-      heading => heading.textContent.includes('Archived Chats')
-    );
-    
-    if (!archivedChatsHeading) {
-      return null;
-    }
-    
-    // Get the table in the same modal
-    const modal = archivedChatsHeading.closest('[role="dialog"]');
-    
-    if (!modal) {
-      return null;
-    }
-    
-    const table = modal.querySelector('table');
-    return table;
-  }
-  
-  /**
-   * Delete all archives
+   * Delete all archives with enhanced logging
    */
   async function deleteAllArchives(options = {}) {
     if (isDeleting) {
@@ -298,8 +451,13 @@
       const archivesPanel = findArchivesPanel();
       
       if (!archivesPanel) {
+        addLogEntry('Archives panel not found - try opening it first');
         throw new Error('Archives panel not found');
       }
+      
+      // Log DOM structure to help debugging
+      log('Archives panel structure:');
+      log(archivesPanel.outerHTML.substring(0, 500) + '...');
       
       // Count total archives
       const rows = archivesPanel.querySelectorAll('tbody > tr');
@@ -312,6 +470,12 @@
       
       addLogEntry(`Starting deletion of ${totalArchives} archived conversations`);
       
+      // Detailed logging of found rows
+      log(`Found ${rows.length} rows in the table`);
+      if (rows.length > 0) {
+        log(`First row HTML: ${rows[0].outerHTML}`);
+      }
+      
       // Start deletion process
       const signal = abortController.signal;
       
@@ -321,36 +485,48 @@
         isDeleting = false;
       });
       
+      // Find all delete buttons up front to see what we're working with
+      log('Looking for delete buttons...');
+      let foundButtons = [];
+      
+      // Try multiple strategies
+      const buttonsByAriaLabel = archivesPanel.querySelectorAll('button[aria-label="Delete conversation"]');
+      log(`Found ${buttonsByAriaLabel.length} buttons by aria-label`);
+      
+      const buttonsByIcon = Array.from(archivesPanel.querySelectorAll('button')).filter(btn => 
+        btn.innerHTML.includes('trash') || btn.innerHTML.includes('delete')
+      );
+      log(`Found ${buttonsByIcon.length} buttons by icon content`);
+      
+      // Use the most reliable strategy
+      foundButtons = buttonsByAriaLabel.length > 0 ? buttonsByAriaLabel : buttonsByIcon;
+      
+      if (foundButtons.length === 0) {
+        // Try looking at the rightmost buttons in each row
+        const rows = archivesPanel.querySelectorAll('tbody > tr');
+        foundButtons = Array.from(rows).map(row => {
+          const buttons = row.querySelectorAll('button');
+          return buttons[buttons.length - 1]; // Get the last button
+        }).filter(btn => btn !== undefined);
+        
+        log(`Found ${foundButtons.length} buttons by row position`);
+      }
+      
       // Delete archives one by one
-      while (isDeleting && !signal.aborted) {
-        // Get all delete buttons (they change on each iteration)
-        const archivesPanel = findArchivesPanel();
+      for (let i = 0; i < foundButtons.length && isDeleting && !signal.aborted; i++) {
+        const button = foundButtons[i];
         
-        if (!archivesPanel) {
-          throw new Error('Archives panel closed unexpectedly');
-        }
+        log(`Attempting to delete archive ${i+1}/${foundButtons.length}`);
+        log(`Button HTML: ${button.outerHTML}`);
         
-        const deleteButtons = archivesPanel.querySelectorAll('button[aria-label="Delete conversation"]');
-        
-        if (deleteButtons.length === 0) {
-          addLogEntry('No more delete buttons found');
-          break;
-        }
-        
-        // Always use the first button since the DOM refreshes after each deletion
-        const success = await deleteConversation(deleteButtons[0], options);
+        const success = await deleteConversation(button, options);
         
         if (success) {
           deletedCount++;
           updateProgress(deletedCount, totalArchives, false);
           addLogEntry(`Deleted ${deletedCount}/${totalArchives} archives`);
         } else {
-          addLogEntry(`Failed to delete archive ${deletedCount + 1}`);
-        }
-        
-        // Check if we've deleted all archives
-        if (deletedCount >= totalArchives) {
-          break;
+          addLogEntry(`Failed to delete archive ${i+1}`);
         }
         
         // Wait between deletions
@@ -379,20 +555,68 @@
   async function deleteConversation(deleteButton, options = {}) {
     return new Promise(async (resolve) => {
       try {
-        // Click the delete button
-        deleteButton.click();
+        // First, check if the button is actually visible
+        const buttonRect = deleteButton.getBoundingClientRect();
+        if (buttonRect.width === 0 || buttonRect.height === 0) {
+          log('Delete button not visible');
+          resolve(false);
+          return;
+        }
+
+        // Get the icon buttons in the row
+        const row = deleteButton.closest('tr');
+        if (!row) {
+          log('Could not find parent row');
+          resolve(false);
+          return;
+        }
+        
+        // Try to find the delete icon - it's likely the last button in the row
+        const iconButtons = row.querySelectorAll('button');
+        const trashButton = iconButtons[iconButtons.length - 1]; // Usually the last one is delete
+        
+        if (trashButton) {
+          log('Found trash button, clicking...');
+          trashButton.click();
+        } else {
+          // Fallback to the original button
+          log('Using original delete button');
+          deleteButton.click();
+        }
+        
         log('Delete button clicked');
         
         // Wait for confirmation dialog
         await sleep(config.confirmButtonDelay);
         
-        // Find and click the confirm button
-        const confirmButtons = document.querySelectorAll('button.btn.relative.btn-danger');
+        // Find confirm button using multiple approaches
+        let confirmButton = null;
         
-        if (confirmButtons.length > 0) {
-          log('Confirm button found');
-          confirmButtons[0].click();
-          log('Confirm button clicked');
+        // First try by text content - most reliable
+        const allButtons = Array.from(document.querySelectorAll('button'));
+        confirmButton = allButtons.find(btn => {
+          const text = (btn.textContent || '').toLowerCase();
+          return text.includes('delete') && !text.includes('cancel');
+        });
+        
+        // Then try by class
+        if (!confirmButton) {
+          confirmButton = document.querySelector('button.btn-danger, button.danger, button[data-testid="confirm-delete-button"]');
+        }
+        
+        // Finally try by color
+        if (!confirmButton) {
+          confirmButton = Array.from(document.querySelectorAll('button')).find(btn => {
+            const style = window.getComputedStyle(btn);
+            return style.backgroundColor.includes('rgb(239, 68, 68)') || // Red color
+                  style.backgroundColor.includes('rgb(220, 38, 38)') ||
+                  style.color.includes('rgb(239, 68, 68)');
+          });
+        }
+        
+        if (confirmButton) {
+          log('Confirm button found, clicking...');
+          confirmButton.click();
           
           // Wait for deletion to complete
           await sleep(config.waitBetweenDeletes);
@@ -428,6 +652,14 @@
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+  
+  // Notify the background script that we're running
+  browser.runtime.sendMessage({
+    action: 'contentScriptLoaded',
+    url: window.location.href
+  }).catch(error => {
+    console.error("Error sending message to background:", error);
+  });
   
   // Log initialization
   addLogEntry('ChatGPT Scrubber initialized');

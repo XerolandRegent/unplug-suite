@@ -8,6 +8,8 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  console.log("Popup opened, checking connection to ChatGPT");
+  
   // Elements
   const connectionStatus = document.getElementById('connection-status');
   const statusMessage = document.getElementById('status-message');
@@ -61,66 +63,116 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Check connection to ChatGPT page
-  function checkConnection() {
-    browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-      const currentTab = tabs[0];
-      if (!currentTab) return;
+// Update this function in your popup.js
+function checkConnection() {
+  browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    const currentTab = tabs[0];
+    if (!currentTab) return;
 
-      const url = new URL(currentTab.url);
-      if (url.hostname === 'chat.openai.com') {
-        isConnected = true;
-        connectionStatus.classList.remove('disconnected');
-        connectionStatus.classList.add('connected');
-        connectionStatus.querySelector('.status-text').textContent = 'Connected';
-        statusMessage.textContent = 'Ready to scrub archives';
-
-        // Check if archives are open and count them
-        browser.tabs.sendMessage(currentTab.id, { action: 'checkArchivesStatus' })
-          .then(response => {
-            if (response && response.archivesOpen) {
-              archivesCount.textContent = response.count || '0';
-              totalArchives = response.count || 0;
-              deleteAllBtn.disabled = totalArchives === 0;
-              statusMessage.textContent = 'Archives panel detected';
-              addLogEntry(`Found ${totalArchives} archived conversations`);
-            }
-            
-            // Get log entries from content script
-            return browser.tabs.sendMessage(currentTab.id, { action: 'getLogEntries' });
-          })
-          .then(response => {
-            if (response && response.entries) {
-              // Clear existing entries
-              logEntries.innerHTML = '';
+    console.log("Current tab URL:", currentTab.url);
+    
+    // Only proceed if we're on a ChatGPT page
+    const url = new URL(currentTab.url);
+    if (url.hostname !== 'chat.openai.com' && url.hostname !== 'chatgpt.com') {
+      isConnected = false;
+      connectionStatus.classList.add('disconnected');
+      connectionStatus.classList.remove('connected');
+      connectionStatus.querySelector('.status-text').textContent = 'Disconnected';
+      statusMessage.textContent = 'Open ChatGPT to use this extension';
+      deleteAllBtn.disabled = true;
+      addLogEntry('Please navigate to chat.openai.com or chatgpt.com');
+      return;
+    }
+    
+    // Try direct connection check
+    browser.tabs.sendMessage(currentTab.id, { action: 'checkConnection' })
+      .then(response => {
+        if (response && response.connected) {
+          isConnected = true;
+          connectionStatus.classList.remove('disconnected');
+          connectionStatus.classList.add('connected');
+          connectionStatus.querySelector('.status-text').textContent = 'Connected';
+          statusMessage.textContent = 'Connected to ' + response.domain;
+          
+          // Check if we're already looking at archives
+          browser.tabs.sendMessage(currentTab.id, { action: 'checkArchivesStatus' })
+            .then(response => {
+              if (response && response.archivesOpen) {
+                archivesCount.textContent = response.count || '0';
+                totalArchives = response.count || 0;
+                deleteAllBtn.disabled = totalArchives === 0;
+                statusMessage.textContent = 'Archives panel detected';
+                addLogEntry(`Found ${totalArchives} archived conversations`);
+              }
               
-              // Add entries from newest to oldest
-              const entries = response.entries.slice().reverse();
-              entries.forEach(entry => {
-                addLogEntry(entry);
-              });
+              // Get log entries from content script
+              return browser.tabs.sendMessage(currentTab.id, { action: 'getLogEntries' });
+            })
+            .then(response => {
+              if (response && response.entries) {
+                // Add entries from newest to oldest
+                const entries = response.entries.slice().reverse();
+                entries.forEach(entry => {
+                  addLogEntry(entry);
+                });
+              }
+            })
+            .catch(error => {
+              console.error('Error checking archives status:', error);
+            });
+          
+          // Auto-open archives ONLY if configured and not already open
+          browser.storage.local.get(['autoOpenArchives']).then((result) => {
+            if (result.autoOpenArchives) {
+              // First check if archives are already open
+              browser.tabs.sendMessage(currentTab.id, { action: 'checkArchivesStatus' })
+                .then(response => {
+                  if (!response || !response.archivesOpen) {
+                    openArchivesBtn.click();
+                  }
+                });
             }
-          })
-          .catch(error => {
-            console.error('Error checking status:', error);
           });
-
-        // Auto-open archives if option is enabled
-        browser.storage.local.get(['autoOpenArchives']).then((result) => {
-          if (result.autoOpenArchives) {
-            openArchivesBtn.click();
-          }
-        });
-      } else {
-        isConnected = false;
-        connectionStatus.classList.add('disconnected');
-        connectionStatus.classList.remove('connected');
-        connectionStatus.querySelector('.status-text').textContent = 'Disconnected';
-        statusMessage.textContent = 'Open ChatGPT to use this extension';
-        deleteAllBtn.disabled = true;
-        addLogEntry('Please navigate to chat.openai.com');
-      }
-    });
+        }
+      })
+      .catch(error => {
+        console.error("Connection error:", error);
+        statusMessage.textContent = 'Error connecting to page';
+        addLogEntry('Cannot connect to ChatGPT page. Try reloading.');
+      });
+  });
+}
+  
+  // Check archives status
+  function checkArchivesStatus(tabId) {
+    browser.tabs.sendMessage(tabId, { action: 'checkArchivesStatus' })
+      .then(response => {
+        if (response && response.archivesOpen) {
+          archivesCount.textContent = response.count || '0';
+          totalArchives = response.count || 0;
+          deleteAllBtn.disabled = totalArchives === 0;
+          statusMessage.textContent = 'Archives panel detected';
+          addLogEntry(`Found ${totalArchives} archived conversations`);
+        }
+        
+        // Get log entries from content script
+        return browser.tabs.sendMessage(tabId, { action: 'getLogEntries' });
+      })
+      .then(response => {
+        if (response && response.entries) {
+          // Clear existing entries
+          logEntries.innerHTML = '';
+          
+          // Add entries from newest to oldest
+          const entries = response.entries.slice().reverse();
+          entries.forEach(entry => {
+            addLogEntry(entry);
+          });
+        }
+      })
+      .catch(error => {
+        console.error('Error checking status:', error);
+      });
   }
 
   // Open the archives panel
@@ -221,7 +273,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Update progress bar
   function updateProgressBar(percent) {
-    progressBar.style.setProperty('--width', `${percent}%`);
     progressBar.style.width = `${percent}%`;
     progressText.textContent = `${Math.round(percent)}%`;
   }

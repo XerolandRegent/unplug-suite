@@ -3,26 +3,37 @@
   "name": "ChatGPT Scrubber",
   "version": "1.0.0",
   "description": "Bulk delete archived ChatGPT conversations. Part of the Unplug Suite for digital privacy.",
-"icons": {
-  "48": "icons/cgpt-sc-48.png",
-  "96": "icons/cgpt-sc-96.png"
-},
+  "icons": {
+    "48": "icons/cgpt-sc-48.png",
+    "96": "icons/cgpt-sc-96.png"
+  },
   "permissions": [
     "activeTab",
     "storage"
   ],
-  "content_scripts": [
-    {
-      "matches": ["*://chat.openai.com/*"],
-      "js": ["content.js"],
-      "css": ["styles.css"]
-    }
-  ],
-"browser_action": {
-  "default_icon": "icons/cgpt-sc-48.png",
-  "default_title": "ChatGPT Scrubber",
-  "default_popup": "popup/popup.html"
-},
+  "background": {
+    "scripts": ["background.js"]
+  },
+"content_scripts": [
+  {
+    "matches": [
+      "*://chat.openai.com/*", 
+      "*://chatgpt.com/*"
+    ],
+    "js": ["content.js"],
+    "css": ["styles.css"]
+  }
+],
+  "browser_action": {
+    "default_icon": {
+      "16": "icons/cgpt-sc-48.png",
+      "32": "icons/cgpt-sc-48.png",
+      "48": "icons/cgpt-sc-48.png",
+      "96": "icons/cgpt-sc-96.png"
+    },
+    "default_title": "ChatGPT Scrubber",
+    "default_popup": "popup/popup.html"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "chatgpt-scrubber@unplug-suite.org",
